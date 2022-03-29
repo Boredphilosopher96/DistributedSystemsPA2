@@ -80,8 +80,32 @@ class NodeHandler:
 
             predecessor_node_client.set_successor(current_node)
             successor_node_client.set_predecessor(current_node)
-            # Todo: Set full finger table
-            # Todo: Ask others to update their finger table
+
+            # Set the full finger table
+            finger_ids = self.get_finger_node_ids(self.node_id)
+            for index, node_id in enumerate(finger_ids[1:]):
+                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index - 1]]):
+                    self.finger_table[node_id] = self.finger_table[finger_ids[index - 1]]
+                else:
+                    self.finger_table[node_id] = random_node_client.find_successor(node_id)
+
+            # Ask other nodes to update finger tables as well
+            self._ask_others_to_update_finger_tables()
+
+    def _ask_others_to_update_finger_tables(self):
+        for i in range(self.max_dht_nodes):
+            hashed_id = ((self.node_id - 2 ** i) % self.max_dht_nodes)
+            # if the modulus is negative, wrap around and check the distance from the other direction
+            if hashed_id < 0:
+                hashed_id += self.max_dht_nodes
+
+            # Ask the predecessor of the hashed id to update it's ith node
+            predecessor_node: ttypes.NodeInfo = self.find_predecessor(hashed_id)
+            predecessor_node_client: NodeInterface.Client = utils.get_client(ip_address=predecessor_node.ip_address,
+                                                                             port=predecessor_node.port_no,
+                                                                             client_class=NodeInterface.Client)
+            predecessor_node_client.update_finger_table((predecessor_node.node_id + 2 ** i) % self.max_dht_nodes,
+                                                        ttypes.NodeInfo(self.node_id, ip_address=self.local_host, port_no=self.port_number))
 
     def hash_word(self, word: str) -> int:
         """
@@ -197,10 +221,21 @@ class NodeHandler:
         self.predecessor = node_info
 
     def set_successor(self, node_info: ttypes.NodeInfo):
+        self.finger_table[(self.node_id + 1) % self.max_dht_nodes] = node_info
         self.successor = node_info
 
     def update_finger_table(self, id: int, node_info: ttypes.NodeInfo):
-        self.finger_table[id] = node_info
+        # If it is a successor, make sure to change it in finger table as well
+        if id == (self.node_id + 1) % self.max_dht_nodes:
+            self.successor = node_info
+
+        if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[id].node_id):
+            self.finger_table[id] = node_info
+            predecessor_client: NodeInterface.Client = utils.get_client(
+                ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
+                client_class=NodeInterface.Client
+            )
+            predecessor_client.update_finger_table(id, node_info)
 
     def put(self, word: str, meaning: str) -> bool:
         """
