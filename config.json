@@ -1,0 +1,11 @@
+{
+    "maxNodes": 8,
+    "superNodeIp": "127.0.0.1",
+    "superNodePort": 5001,
+    "multiplexingKeys": {
+        "interface.ClientSuperNodeInterface": "clientSuperNodeProcessor",
+        "interface.ClientNodeInterface": "clientNodeProcessor",
+        "interface.NodeSuperNodeInterface": "nodeSuperNodeProcessor",
+        "interface.NodeInterface": "nodeProcessor"
+    }
+}
