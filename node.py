@@ -11,7 +11,7 @@ from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeI
 
 
 class NodeHandler:
-    def __init__(self, max_dht_nodes, local_hostname = socket.getfqdn(socket.gethostname()), port_number = 5000):
+    def __init__(self, max_dht_nodes, local_hostname=socket.getfqdn(socket.gethostname()), port_number=5000):
         self.finger_table = {}
         self.max_dht_nodes = max_dht_nodes
         self.meaning = {}
@@ -19,82 +19,247 @@ class NodeHandler:
         self.successor = None
         self.predecessor = None
         self.node_id = None
-        self.local_hostname = local_hostname
+        self.local_host = local_hostname
         self.port_number = port_number
-        # self.ping()
-        self.initiate_registration_with_supernode()
-    
+
     def ping(self):
         print("Starting here")
         client = utils.get_client(
-            utils.CONFIG['superNodeIp'], utils.CONFIG['superNodePort'], client_class = NodeSuperNodeInterface.Client
+            utils.CONFIG['superNodeIp'], utils.CONFIG['superNodePort'], client_class=NodeSuperNodeInterface.Client
         )
         print(client.ping())
-    
+
     def initiate_registration_with_supernode(self):
         node_supernode_client: NodeSuperNodeInterface.Client = utils.get_client(
-            utils.CONFIG['superNodeIp'], utils.CONFIG['superNodePort'], client_class = NodeSuperNodeInterface.Client
+            utils.CONFIG['superNodeIp'], utils.CONFIG['superNodePort'], client_class=NodeSuperNodeInterface.Client
         )
-        
+
         # random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join(self.local_hostname, self.port_number)
         random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join("10.0.30.0", self.port_number)
-        
+
         # If this is the first node joining the DHT, no need to update any finger tables
         if random_node.node_id is None:
             # If supernode did not assign a valid id, raise exception
-            if (random_node.assigned_node_id is None) or (
-                random_node.assigned_node_id not in range(0, self.max_dht_nodes)):
-                raise ttypes.CustomException("The supernode did not assign any node id to the given node")
-            
-            # Else assign node id to this node and tell supernode join is complete
+            if (random_node.assigned_node_id is None) or (random_node.assigned_node_id not in range(0, self.max_dht_nodes)):
+                raise ttypes.CustomException("The supernode did not assign a valid node id to the given node")
+
+            current_node = ttypes.NodeInfo(node_id=self.node_id, ip_address=self.local_host, port_no=self.port_number)
+
+            # Else assign node id to this node
             self.node_id = random_node.assigned_node_id
+
+            # Since this is the only node in the DHT, it is the successor and predecessor for everything
+            for node_id in self.get_finger_node_ids(self.node_id):
+                self.finger_table[node_id] = current_node
+
+            self.predecessor = current_node
+            self.successor = current_node
+
+            # Signal to supernode that join is complete
             node_supernode_client.post_join(random_node.assigned_node_id)
         else:
-            pass
-    
+            # Make sure that the node assigned is valid
+            if random_node.assigned_node_id is None or random_node.assigned_node_id not in range(0, self.max_dht_nodes):
+                raise ttypes.CustomException("The supernode did not assign a valid node id to the given node")
+
+            self.node_id = random_node.assigned_node_id
+            random_node_client: NodeInterface.Client = utils.get_client(ip_address=random_node.ip_address, port=random_node.port_no,
+                                                                        client_class=NodeInterface.Client)
+            successor_node: ttypes.NodeInfo = random_node_client.find_successor(self.node_id)
+            successor_node_client: NodeInterface.Client = utils.get_client(ip_address=successor_node.ip_address,
+                                                                           port=successor_node.port_no,
+                                                                           client_class=NodeInterface.Client)
+            predecessor_node: ttypes.NodeInfo = successor_node_client.get_predecessor()
+            predecessor_node_client: NodeInterface.Client = utils.get_client(ip_address=predecessor_node.ip_address,
+                                                                             port=predecessor_node.port_no,
+                                                                             client_class=NodeInterface.Client)
+
+            self.successor = successor_node
+            self.predecessor = predecessor_node
+            current_node = ttypes.NodeInfo(node_id=self.node_id, ip_address=self.local_host, port_no=self.port_number)
+
+            predecessor_node_client.set_successor(current_node)
+            successor_node_client.set_predecessor(current_node)
+            # Todo: Set full finger table
+            # Todo: Ask others to update their finger table
+
     def hash_word(self, word: str) -> int:
+        """
+        Encode the word using MD5 hashing algorithm
+
+        :param word: Word that is supposed to be hashed
+        :return: hashed id modulo max nodes in dht
+        """
         hashed_word = hashlib.md5(word.encode())
         return int(hashed_word.hexdigest(), 16) % self.max_dht_nodes
-    
+
     @staticmethod
-    def check_if_in_between(hashed_id, possible_predecessor, possible_successor):
-        if possible_predecessor < possible_successor:
-            return possible_predecessor <= hashed_id < possible_successor
-        return possible_predecessor <= hashed_id or hashed_id < possible_successor
-    
-    def get_successor(self, hashed_id: int) -> ttypes.NodeInfo:
-        if hashed_id == self.node_id:
-            if self.successor is not None:
-                return self.successor
+    def check_if_in_between(hashed_id, possible_predecessor, possible_successor, start_inclusive=False, end_inclusive=False):
+        # In case of wrap predecessor and successor are same, it usually means there is one node. So hashed_id is always in between
+        if possible_predecessor == possible_successor:
+            return True
+
+        # In case predecessor is less than successor, that means there is no wrap around in DHT. We just need to verify hashed_id is
+        # in the space between
+        elif possible_predecessor < possible_successor:
+            is_in_between = True
+            if start_inclusive:
+                is_in_between = is_in_between and possible_predecessor <= hashed_id
             else:
-                raise ttypes.CustomException("Making request to this node before all finger tables are updated")
+                is_in_between = is_in_between and possible_predecessor < hashed_id
+
+            if end_inclusive:
+                is_in_between = is_in_between and hashed_id <= possible_successor
+            else:
+                is_in_between = is_in_between and hashed_id < possible_successor
+
+            return is_in_between
+
+        # In case there is wrap around
         else:
-            pass
-    
-    def get_predecessor(self, hashed_id: int) -> ttypes.NodeInfo:
-        pass
-    
+            # In case hashed id is also wrapped around
+            if possible_predecessor >= hashed_id and hashed_id <= possible_successor:
+                is_in_between = True
+                if start_inclusive:
+                    is_in_between = is_in_between and possible_predecessor >= hashed_id
+                else:
+                    is_in_between = is_in_between and possible_predecessor > hashed_id
+
+                if end_inclusive:
+                    is_in_between = is_in_between and hashed_id <= possible_successor
+                else:
+                    is_in_between = is_in_between and hashed_id < possible_successor
+
+                return is_in_between
+
+            # In case only successor is wrapped around
+            elif possible_predecessor <= hashed_id and hashed_id >= possible_successor:
+                is_in_between = True
+                if start_inclusive:
+                    is_in_between = is_in_between and possible_predecessor <= hashed_id
+                else:
+                    is_in_between = is_in_between and possible_predecessor < hashed_id
+
+                if end_inclusive:
+                    is_in_between = hashed_id >= possible_successor
+                else:
+                    is_in_between = hashed_id > possible_successor
+
+                return is_in_between
+
+            else:
+                # Handle default case
+                return False
+
+    def find_successor(self, hashed_id: int) -> ttypes.NodeInfo:
+        predecessor = self.find_predecessor(hashed_id)
+        node_client: NodeInterface.Client = utils.get_client(predecessor.ip_address, predecessor.port_no, NodeInterface.Client)
+        return node_client.get_successor()
+
+    def get_successor(self) -> ttypes.NodeInfo:
+        return self.successor
+
+    def get_predecessor(self) -> ttypes.NodeInfo:
+        return self.predecessor
+
+    def find_predecessor(self, hashed_id: int) -> ttypes.NodeInfo:
+        closest_predecessor = self.get_closest_predecessor(hashed_id)
+        predecessor_client: NodeInterface.Client = utils.get_client(
+            ip_address=closest_predecessor.ip_address, port=closest_predecessor.port_no,
+            client_class=NodeInterface.Client
+        )
+        while not self.check_if_in_between(hashed_id, closest_predecessor.ip_address, predecessor_client.get_successor().node_id,
+                                           end_inclusive=True):
+            closest_predecessor = predecessor_client.get_closest_predecessor(hashed_id)
+            predecessor_client: NodeInterface.Client = utils.get_client(
+                ip_address=closest_predecessor.ip_address, port=closest_predecessor.port_no,
+                client_class=NodeInterface.Client
+            )
+
+        return closest_predecessor
+
+    def get_finger_node_ids(self, node_id):
+        finger_node_ids = []
+        # max_bits = math.ceil(math.log2(self.max_dht_nodes))
+        max_bits = len(self.finger_table)
+        for i in range(max_bits):
+            finger_node_ids.append((node_id + 2 ** i) % self.max_dht_nodes)
+        return finger_node_ids
+
     def get_closest_predecessor(self, hashed_id: int) -> ttypes.NodeInfo:
-        pass
-    
+        for node_id in reversed(self.get_finger_node_ids(self.node_id)):
+            if self.check_if_in_between(self.finger_table[node_id].node_id, self.node_id, hashed_id):
+                return self.finger_table[node_id]
+
+        return ttypes.NodeInfo(node_id=self.node_id, ip_address=self.local_host, port_no=self.port_number)
+
     def set_predecessor(self, node_info: ttypes.NodeInfo):
-        pass
-    
+        self.predecessor = node_info
+
     def set_successor(self, node_info: ttypes.NodeInfo):
-        pass
-    
+        self.successor = node_info
+
     def update_finger_table(self, id: int, node_info: ttypes.NodeInfo):
-        pass
-    
+        self.finger_table[id] = node_info
+
     def put(self, word: str, meaning: str) -> bool:
-        pass
-    
+        """
+        Put a word into the DHT to be read later
+
+        :param word: word to be put in the DHT
+        :param meaning: Meaning of the word to be stored in DHT
+        :return: a True boolean. This returns a boolean only to signal to the caller that insertion is successful
+        """
+        # Always keep cache of every word that goes through
+        self.cached_meaning[word] = meaning
+        hashed_id = self.hash_word(word)
+
+        # If this is the successor node to the hashed id, store it in this node
+        if self.check_if_in_between(hashed_id, self.get_predecessor().node_id, self.node_id, end_inclusive=True):
+            self.meaning[word] = meaning
+            return True
+        else:
+            # Else find the successor, and store the data there
+            successor: ttypes.NodeInfo = self.find_successor(hashed_id)
+            successor_client: NodeInterface.Client = utils.get_client(ip_address=successor.ip_address, port=successor.port_no,
+                                                                      client_class=NodeInterface.Client)
+            return successor_client.put(word, meaning)
+
     def get(self, word: str, use_cache: bool = False) -> ttypes.Result:
+        """
+        Get the meaning of the word in the DHT. If meaning does not exist in the current node, it contacts the node which has the meaning
+        and tries to get the meaning
+
+        :param word: word for which we want to know the meaning of
+        :param use_cache: boolean representing can the node use cached value of meaning?
+        :return: a result type object with meaning of the word and the IP of node called by client and the node containing the word
+        :raises: A custom exception. This can happen when the client asks for meaning of word that is not in DHT
+        """
         # If we use cache, and the word is cached, we return the word
         if use_cache and word in self.cached_meaning:
             print(f"Getting cached meaning for word {word}")
-            return ttypes.Result(answer = self.cached_meaning[word], path = [f"{self.node_id}"])
-        pass
+            return ttypes.Result(answer=self.cached_meaning[word], path=[f"{self.node_id}"])
+
+        # Hash the word to know which node the data should be stored in
+        hashed_id = self.hash_word(word)
+
+        # Check if this is the node responsible for storing the data. It will be true if this node is the successor to hashed_id
+        if self.check_if_in_between(hashed_id, self.get_predecessor().node_id, self.node_id, end_inclusive=True):
+            # if we are at the correct node and the data is not stored here, that means the data is not found in the DHT
+            if word not in self.meaning:
+                raise ttypes.CustomException("The given word you are searching for is not in the DHT")
+
+            # If it is found, we attach the local IP and the meaning of the word
+            return ttypes.Result(answer=self.meaning[word], path=[self.local_host])
+        else:
+            # If data is not found in the current node, we find the successor node and task it to get the data
+            successor: ttypes.NodeInfo = self.find_successor(hashed_id)
+            successor_client: NodeInterface.Client = utils.get_client(ip_address=successor.ip_address, port=successor.port_no,
+                                                                      client_class=NodeInterface.Client)
+            result: ttypes.Result = successor_client.get(word, use_cache)
+            # Attach the path of the current node tasking it as well
+            result.path.append(self.local_host)
+            return result
 
 
 if __name__ == '__main__':
@@ -109,12 +274,14 @@ if __name__ == '__main__':
     processor.registerProcessor(
         utils.CONFIG["multiplexingKeys"][ClientNodeInterface.Client.__module__], ClientNodeInterface.Processor(handler)
     )
-    
-    transport = TSocket.TServerSocket(host = "10.0.30.0", port = utils.CONFIG['superNodePort'])
-    
+
+    transport = TSocket.TServerSocket(host="10.0.30.0", port=utils.CONFIG['superNodePort'])
+
     transport_factory = TTransport.TBufferedTransportFactory()
     protocol_factory = TBinaryProtocol.TBinaryProtocolFactory()
     server = TServer.TThreadPoolServer(processor, transport, transport_factory, protocol_factory)
-    
+
+    print("Initiating registration with supernode")
+    handler.initiate_registration_with_supernode()
     print('Starting the node')
     server.serve()

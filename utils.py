@@ -20,6 +20,7 @@ except Exception as e:
 
 
 def check_if_client_is_eligible(client_class) -> bool:
+    # We can only create clients of these types. Everything else raises an exception
     eligible_classes = {ClientNodeInterface.Client,
                         ClientSuperNodeInterface.Client, NodeInterface.Client,
                         NodeSuperNodeInterface.Client}
@@ -37,6 +38,7 @@ def get_client(ip_address, port, client_class):
         
         transport = TTransport.TBufferedTransport(transport)
         
+        # If the server has implemented multiple services, get the required service from config.json
         if client_class.__module__ in CONFIG["multiplexingKeys"]:
             protocol = TMultiplexedProtocol.TMultiplexedProtocol(
                 protocol, serviceName = CONFIG["multiplexingKeys"][client_class.__module__]

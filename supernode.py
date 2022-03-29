@@ -86,6 +86,7 @@ class SuperNodeHandler:
 
 if __name__ == '__main__':
     handler = SuperNodeHandler(utils.CONFIG['maxNodes'])
+    # Because it implements multiple interfaces, register all the processors with name given in config file
     processor = TMultiplexedProcessor()
     processor.registerProcessor(
         utils.CONFIG["multiplexingKeys"][ClientSuperNodeInterface.Client.__module__],

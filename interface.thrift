@@ -39,9 +39,13 @@ service NodeSuperNodeInterface {
 }
 
 service NodeInterface {
-    NodeInfo get_successor(1: i32 node_id),
+    NodeInfo get_successor(),
 
-    NodeInfo get_predecessor(1: i32 node_id),
+    NodeInfo find_successor(1: i32 node_id),
+
+    NodeInfo get_predecessor(),
+
+    NodeInfo find_predecessor(1: i32 node_id),
 
     NodeInfo get_closest_predecessor(1: i32 node_id),
 
@@ -49,5 +53,10 @@ service NodeInterface {
 
     void set_successor(1: NodeInfo node_info),
 
-    void update_finger_table(1: i32 id, 2: NodeInfo node_info)
+    void update_finger_table(1: i32 id, 2: NodeInfo node_info),
+
+    bool put(1: string word, 2: string meaning)
+
+    Result get(1:string word, 2:bool use_cache) throws (1: CustomException customException)
+
 }
