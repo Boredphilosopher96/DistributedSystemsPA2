@@ -10,7 +10,7 @@ from thrift.transport import TSocket, TTransport
 import utils
 from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeInterface
 
-SERVER_ID = 6
+SERVER_ID = 8
 
 
 class NodeHandler:
@@ -123,6 +123,8 @@ class NodeHandler:
             node_supernode_client.post_join(self.node_id)
 
             print(f"Node initialized with the following details {current_node}")
+            print(f"The successor of the node is {self.get_successor()}")
+            print(f"The predecessor of the node is {self.get_predecessor()}")
 
     def _ask_others_to_update_finger_tables(self):
         for i in range(math.ceil(math.log2(self.max_dht_nodes))):
@@ -275,6 +277,7 @@ class NodeHandler:
         # Try to match this with paper and other people's implementation
         if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[finger_nodes[id]].node_id, start_inclusive=True):
             self.finger_table[finger_nodes[id]] = node_info
+            print(f"The finger table of the node was updated to \n {self.finger_table}")
             # if self.get_predecessor().node_id == node_info.node_id:
             #     return
             if self.get_predecessor().node_id != self.node_id and self.get_predecessor().node_id != node_info.node_id:
@@ -293,6 +296,8 @@ class NodeHandler:
         :return: a True boolean. This returns a boolean only to signal to the caller that insertion is successful
         """
         print(f"Putting the meaning of the word {word}")
+        # Converting it to lowercase to handle case mismatches
+        word = word.lower()
         # Always keep cache of every word that goes through
         self.cached_meaning[word] = meaning
         hashed_id = self.hash_word(word)
@@ -322,6 +327,9 @@ class NodeHandler:
         """
         print(f"Getting meaning for word {word}")
 
+        # Converting it to lowercase to handle case mismatches
+        word = word.lower()
+
         # If we use cache, and the word is cached, we return the word
         if use_cache and word in self.cached_meaning:
             print(f"Getting cached meaning for word {word}")
@@ -334,7 +342,7 @@ class NodeHandler:
         if self.check_if_in_between(hashed_id, self.get_predecessor().node_id, self.node_id, end_inclusive=True):
             # if we are at the correct node and the data is not stored here, that means the data is not found in the DHT
             if word not in self.meaning:
-                raise ttypes.CustomException("The given word you are searching for is not in the DHT")
+                raise ttypes.CustomException(f"The given word ({word}) you are searching for is not in the DHT")
 
             # If it is found, we attach the local IP and the meaning of the word
             return ttypes.Result(answer=self.meaning[word], path=[f"{self.node_id}"])
