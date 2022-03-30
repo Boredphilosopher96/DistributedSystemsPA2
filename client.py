@@ -19,5 +19,5 @@ if __name__ == '__main__':
     node_client.put('Lion', 'Catty')
     node_client.put('Sea', 'Power')
 
-    print(node_client.get('Sea', use_cache=False))
+    # print(node_client.get('Sea', use_cache=False))
     print(node_client.get('Lion', use_cache=False))

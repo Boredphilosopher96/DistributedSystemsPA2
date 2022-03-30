@@ -10,7 +10,7 @@ from thrift.transport import TSocket, TTransport
 import utils
 from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeInterface
 
-SERVER_ID = 16
+SERVER_ID = 6
 
 
 class NodeHandler:
@@ -337,7 +337,7 @@ class NodeHandler:
                 raise ttypes.CustomException("The given word you are searching for is not in the DHT")
 
             # If it is found, we attach the local IP and the meaning of the word
-            return ttypes.Result(answer=self.meaning[word], path=[self.node_id])
+            return ttypes.Result(answer=self.meaning[word], path=[f"{self.node_id}"])
         else:
             # If data is not found in the current node, we find the successor node and task it to get the data
             successor: ttypes.NodeInfo = self.find_successor(hashed_id)
@@ -345,7 +345,7 @@ class NodeHandler:
                                                                       client_class=NodeInterface.Client)
             result: ttypes.Result = successor_client.get(word, use_cache)
             # Attach the path of the current node tasking it as well
-            result.path.append(self.node_id)
+            result.path.append(f"{self.node_id}")
             return result
 
 
