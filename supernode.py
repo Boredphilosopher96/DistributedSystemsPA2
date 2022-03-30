@@ -125,7 +125,7 @@ if __name__ == '__main__':
         NodeSuperNodeInterface.Processor(handler)
     )
 
-    transport = TSocket.TServerSocket(host=utils.CONFIG['superNodeIp'], port=utils.CONFIG['superNodePort'])
+    transport = TSocket.TServerSocket(port=utils.CONFIG['superNodePort'])
 
     tfactory = TTransport.TBufferedTransportFactory()
     pfactory = TBinaryProtocol.TBinaryProtocolFactory()

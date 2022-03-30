@@ -10,9 +10,12 @@ from thrift.transport import TSocket, TTransport
 import utils
 from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeInterface
 
+SERVER_ID = 4
+
 
 class NodeHandler:
-    def __init__(self, max_dht_nodes, local_hostname=socket.gethostbyname(socket.gethostname()), port_number=5001):
+    def __init__(self, max_dht_nodes, local_hostname=socket.gethostbyname(socket.gethostname()),
+                 port_number=utils.CONFIG['superNodePort'] + SERVER_ID):
         self.finger_table = {}
         self.max_dht_nodes = max_dht_nodes
         self.meaning = {}
@@ -84,7 +87,7 @@ class NodeHandler:
             else:
                 predecessor_node_client = self
 
-            self.successor = successor_node
+            self.set_successor(successor_node)
             self.predecessor = predecessor_node
             current_node = ttypes.NodeInfo(node_id=self.node_id, ip_address=self.local_host, port_no=self.port_number)
 
@@ -93,8 +96,6 @@ class NodeHandler:
 
             # Set the full finger table
             finger_ids = self.get_finger_node_ids(self.node_id)
-
-            self.finger_table[finger_ids[0]] = successor_node
 
             for index, node_id in enumerate(finger_ids[1:]):
                 if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id):
@@ -108,7 +109,7 @@ class NodeHandler:
             print(f"Node initialized with the following details {current_node}")
 
     def _ask_others_to_update_finger_tables(self):
-        for i in range(self.max_dht_nodes):
+        for i in range(math.ceil(math.log2(self.max_dht_nodes))):
             hashed_id = ((self.node_id - 2 ** i) % self.max_dht_nodes)
             # if the modulus is negative, wrap around and check the distance from the other direction
             if hashed_id < 0:
@@ -123,8 +124,9 @@ class NodeHandler:
             else:
                 predecessor_node_client = self
 
-            predecessor_node_client.update_finger_table((predecessor_node.node_id + 2 ** i) % self.max_dht_nodes,
-                                                        ttypes.NodeInfo(self.node_id, ip_address=self.local_host, port_no=self.port_number))
+            predecessor_node_client.update_finger_table(i,
+                                                        ttypes.NodeInfo(self.node_id, ip_address=self.local_host,
+                                                                        port_no=self.port_number))
 
     def hash_word(self, word: str) -> int:
         """
@@ -251,21 +253,19 @@ class NodeHandler:
         self.successor = node_info
 
     def update_finger_table(self, id: int, node_info: ttypes.NodeInfo):
-        # If it is a successor, make sure to change it in finger table as well
-        if id == (self.node_id + 1) % self.max_dht_nodes:
-            self.successor = node_info
-
-        if node_info.node_id == self.node_id:
-            return
-        else:
-            if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[id].node_id, end_inclusive=True):
-                self.finger_table[id] = node_info
-                if self.get_predecessor().node_id != self.node_id:
-                    predecessor_client: NodeInterface.Client = utils.get_client(
-                        ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
-                        client_class=NodeInterface.Client
-                    )
-                    predecessor_client.update_finger_table(id, node_info)
+        finger_nodes = self.get_finger_node_ids(self.node_id)
+        # Try to match this with paper and other people's implementation
+        if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[finger_nodes[id]].node_id, start_inclusive=True):
+            if node_info.node_id != self.node_id:
+                self.finger_table[finger_nodes[id]] = node_info
+            if self.get_predecessor().node_id == node_info.node_id:
+                return
+            if self.get_predecessor().node_id != self.node_id:
+                predecessor_client: NodeInterface.Client = utils.get_client(
+                    ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
+                    client_class=NodeInterface.Client
+                )
+                predecessor_client.update_finger_table(id, node_info)
 
     def put(self, word: str, meaning: str) -> bool:
         """
@@ -345,7 +345,7 @@ if __name__ == '__main__':
         utils.CONFIG["multiplexingKeys"][ClientNodeInterface.Client.__module__], ClientNodeInterface.Processor(handler)
     )
 
-    transport = TSocket.TServerSocket(host="10.0.30.0", port=utils.CONFIG['superNodePort'])
+    transport = TSocket.TServerSocket(port=utils.CONFIG['superNodePort'] + SERVER_ID)
 
     transport_factory = TTransport.TBufferedTransportFactory()
     protocol_factory = TBinaryProtocol.TBinaryProtocolFactory()
