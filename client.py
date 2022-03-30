@@ -8,16 +8,16 @@ if __name__ == '__main__':
 
     node_info: ttypes.NodeInfo = supernode_client.get_node_for_client()
 
-    # node_client: ClientNodeInterface.Client = get_client(
-    #     node_info.ip_address, node_info.port_no, client_class=ClientNodeInterface.Client
-    # )
-
     node_client: ClientNodeInterface.Client = get_client(
-        '10.0.30.0', 5002, client_class=ClientNodeInterface.Client
+        node_info.ip_address, node_info.port_no, client_class=ClientNodeInterface.Client
     )
 
-    node_client.put('Stunning', 'Beautiful, Gorgeous')
-    node_client.put('Lassez-Faire', 'Lax attitude')
+    # node_client: ClientNodeInterface.Client = get_client(
+    #     '10.0.30.0', 5002, client_class=ClientNodeInterface.Client
+    # )
 
-    print(node_client.get('Stunning', use_cache=False))
-    print(node_client.get('Guru', use_cache=True))
+    node_client.put('Lion', 'Catty')
+    node_client.put('Sea', 'Power')
+
+    print(node_client.get('Sea', use_cache=False))
+    print(node_client.get('Lion', use_cache=False))
