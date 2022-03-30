@@ -10,7 +10,7 @@ from thrift.transport import TSocket, TTransport
 import utils
 from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeInterface
 
-SERVER_ID = 4
+SERVER_ID = 16
 
 
 class NodeHandler:
@@ -58,17 +58,18 @@ class NodeHandler:
                 self.finger_table[node_id] = current_node
 
             self.predecessor = current_node
-            self.successor = current_node
+            self.set_successor(current_node)
 
             # Signal to supernode that join is complete
             node_supernode_client.post_join(random_node.assigned_node_id)
-            print(f"Node initialized with the following details {current_node}")
+            print(f"Node initialized with the following details {current_node} and finger table {self.finger_table}")
         else:
             # Make sure that the node assigned is valid
             if random_node.assigned_node_id is None or random_node.assigned_node_id not in range(0, self.max_dht_nodes):
                 raise ttypes.CustomException("The supernode did not assign a valid node id to the given node")
 
             self.node_id = random_node.assigned_node_id
+
             random_node_client: NodeInterface.Client = utils.get_client(ip_address=random_node.ip_address, port=random_node.port_no,
                                                                         client_class=NodeInterface.Client)
             successor_node: ttypes.NodeInfo = random_node_client.find_successor(self.node_id)
@@ -96,16 +97,31 @@ class NodeHandler:
 
             # Set the full finger table
             finger_ids = self.get_finger_node_ids(self.node_id)
+            self.finger_table[finger_ids[0]] = self.get_successor()
 
             for index, node_id in enumerate(finger_ids[1:]):
-                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id):
+                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id, start_inclusive=True):
                     self.finger_table[node_id] = self.finger_table[finger_ids[index]]
                 else:
-                    self.finger_table[node_id] = random_node_client.find_successor(node_id)
+                    if random_node.node_id == self.get_predecessor().node_id:
+                        self.finger_table[node_id] = current_node
+                    else:
+                        self.finger_table[node_id] = random_node_client.find_successor(node_id)
 
             # Ask other nodes to update finger tables as well
             self._ask_others_to_update_finger_tables()
+
+            for index, node_id in enumerate(finger_ids[1:]):
+                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id, start_inclusive=True):
+                    self.finger_table[node_id] = self.finger_table[finger_ids[index]]
+                else:
+                    if random_node.node_id == self.get_predecessor().node_id:
+                        self.finger_table[node_id] = current_node
+                    else:
+                        self.finger_table[node_id] = random_node_client.find_successor(node_id)
+
             node_supernode_client.post_join(self.node_id)
+
             print(f"Node initialized with the following details {current_node}")
 
     def _ask_others_to_update_finger_tables(self):
@@ -249,18 +265,19 @@ class NodeHandler:
         self.predecessor = node_info
 
     def set_successor(self, node_info: ttypes.NodeInfo):
-        self.finger_table[(self.node_id + 1) % self.max_dht_nodes] = node_info
+        # self.finger_table[(self.node_id + 1) % self.max_dht_nodes] = node_info
         self.successor = node_info
 
     def update_finger_table(self, id: int, node_info: ttypes.NodeInfo):
+        if node_info.node_id == self.node_id:
+            return
         finger_nodes = self.get_finger_node_ids(self.node_id)
         # Try to match this with paper and other people's implementation
         if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[finger_nodes[id]].node_id, start_inclusive=True):
-            if node_info.node_id != self.node_id:
-                self.finger_table[finger_nodes[id]] = node_info
-            if self.get_predecessor().node_id == node_info.node_id:
-                return
-            if self.get_predecessor().node_id != self.node_id:
+            self.finger_table[finger_nodes[id]] = node_info
+            # if self.get_predecessor().node_id == node_info.node_id:
+            #     return
+            if self.get_predecessor().node_id != self.node_id and self.get_predecessor().node_id != node_info.node_id:
                 predecessor_client: NodeInterface.Client = utils.get_client(
                     ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
                     client_class=NodeInterface.Client
