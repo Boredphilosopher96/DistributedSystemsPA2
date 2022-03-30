@@ -1,4 +1,5 @@
 import hashlib
+import math
 import socket
 
 from thrift.TMultiplexedProcessor import TMultiplexedProcessor
@@ -11,7 +12,7 @@ from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeI
 
 
 class NodeHandler:
-    def __init__(self, max_dht_nodes, local_hostname=socket.getfqdn(socket.gethostname()), port_number=5000):
+    def __init__(self, max_dht_nodes, local_hostname=socket.gethostbyname(socket.gethostname()), port_number=5001):
         self.finger_table = {}
         self.max_dht_nodes = max_dht_nodes
         self.meaning = {}
@@ -19,7 +20,8 @@ class NodeHandler:
         self.successor = None
         self.predecessor = None
         self.node_id = None
-        self.local_host = local_hostname
+        # self.local_host = local_hostname
+        self.local_host = "10.0.30.0"
         self.port_number = port_number
 
     def ping(self):
@@ -34,8 +36,8 @@ class NodeHandler:
             utils.CONFIG['superNodeIp'], utils.CONFIG['superNodePort'], client_class=NodeSuperNodeInterface.Client
         )
 
-        # random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join(self.local_hostname, self.port_number)
-        random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join("10.0.30.0", self.port_number)
+        # random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join(self.local_host, self.port_number)
+        random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join(self.local_host, self.port_number)
 
         # If this is the first node joining the DHT, no need to update any finger tables
         if random_node.node_id is None:
@@ -43,10 +45,10 @@ class NodeHandler:
             if (random_node.assigned_node_id is None) or (random_node.assigned_node_id not in range(0, self.max_dht_nodes)):
                 raise ttypes.CustomException("The supernode did not assign a valid node id to the given node")
 
-            current_node = ttypes.NodeInfo(node_id=self.node_id, ip_address=self.local_host, port_no=self.port_number)
-
             # Else assign node id to this node
             self.node_id = random_node.assigned_node_id
+
+            current_node = ttypes.NodeInfo(node_id=self.node_id, ip_address=self.local_host, port_no=self.port_number)
 
             # Since this is the only node in the DHT, it is the successor and predecessor for everything
             for node_id in self.get_finger_node_ids(self.node_id):
@@ -57,6 +59,7 @@ class NodeHandler:
 
             # Signal to supernode that join is complete
             node_supernode_client.post_join(random_node.assigned_node_id)
+            print(f"Node initialized with the following details {current_node}")
         else:
             # Make sure that the node assigned is valid
             if random_node.assigned_node_id is None or random_node.assigned_node_id not in range(0, self.max_dht_nodes):
@@ -66,13 +69,20 @@ class NodeHandler:
             random_node_client: NodeInterface.Client = utils.get_client(ip_address=random_node.ip_address, port=random_node.port_no,
                                                                         client_class=NodeInterface.Client)
             successor_node: ttypes.NodeInfo = random_node_client.find_successor(self.node_id)
-            successor_node_client: NodeInterface.Client = utils.get_client(ip_address=successor_node.ip_address,
-                                                                           port=successor_node.port_no,
-                                                                           client_class=NodeInterface.Client)
+            if successor_node.node_id == self.node_id:
+                successor_node_client = self
+            else:
+                successor_node_client: NodeInterface.Client = utils.get_client(ip_address=successor_node.ip_address,
+                                                                               port=successor_node.port_no,
+                                                                               client_class=NodeInterface.Client)
+
             predecessor_node: ttypes.NodeInfo = successor_node_client.get_predecessor()
-            predecessor_node_client: NodeInterface.Client = utils.get_client(ip_address=predecessor_node.ip_address,
-                                                                             port=predecessor_node.port_no,
-                                                                             client_class=NodeInterface.Client)
+            if predecessor_node.node_id != self.node_id:
+                predecessor_node_client: NodeInterface.Client = utils.get_client(ip_address=predecessor_node.ip_address,
+                                                                                 port=predecessor_node.port_no,
+                                                                                 client_class=NodeInterface.Client)
+            else:
+                predecessor_node_client = self
 
             self.successor = successor_node
             self.predecessor = predecessor_node
@@ -83,14 +93,19 @@ class NodeHandler:
 
             # Set the full finger table
             finger_ids = self.get_finger_node_ids(self.node_id)
+
+            self.finger_table[finger_ids[0]] = successor_node
+
             for index, node_id in enumerate(finger_ids[1:]):
-                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index - 1]]):
-                    self.finger_table[node_id] = self.finger_table[finger_ids[index - 1]]
+                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id):
+                    self.finger_table[node_id] = self.finger_table[finger_ids[index]]
                 else:
                     self.finger_table[node_id] = random_node_client.find_successor(node_id)
 
             # Ask other nodes to update finger tables as well
             self._ask_others_to_update_finger_tables()
+            node_supernode_client.post_join(self.node_id)
+            print(f"Node initialized with the following details {current_node}")
 
     def _ask_others_to_update_finger_tables(self):
         for i in range(self.max_dht_nodes):
@@ -101,9 +116,13 @@ class NodeHandler:
 
             # Ask the predecessor of the hashed id to update it's ith node
             predecessor_node: ttypes.NodeInfo = self.find_predecessor(hashed_id)
-            predecessor_node_client: NodeInterface.Client = utils.get_client(ip_address=predecessor_node.ip_address,
-                                                                             port=predecessor_node.port_no,
-                                                                             client_class=NodeInterface.Client)
+            if predecessor_node.node_id != self.node_id:
+                predecessor_node_client: NodeInterface.Client = utils.get_client(ip_address=predecessor_node.ip_address,
+                                                                                 port=predecessor_node.port_no,
+                                                                                 client_class=NodeInterface.Client)
+            else:
+                predecessor_node_client = self
+
             predecessor_node_client.update_finger_table((predecessor_node.node_id + 2 ** i) % self.max_dht_nodes,
                                                         ttypes.NodeInfo(self.node_id, ip_address=self.local_host, port_no=self.port_number))
 
@@ -119,6 +138,8 @@ class NodeHandler:
 
     @staticmethod
     def check_if_in_between(hashed_id, possible_predecessor, possible_successor, start_inclusive=False, end_inclusive=False):
+        if possible_predecessor is None or possible_successor is None:
+            raise ttypes.CustomException("One of the successor or predecessor is none")
         # In case of wrap predecessor and successor are same, it usually means there is one node. So hashed_id is always in between
         if possible_predecessor == possible_successor:
             return True
@@ -176,6 +197,8 @@ class NodeHandler:
                 return False
 
     def find_successor(self, hashed_id: int) -> ttypes.NodeInfo:
+        if self.node_id == hashed_id:
+            return ttypes.NodeInfo(node_id=self.node_id, ip_address=self.local_host, port_no=self.port_number)
         predecessor = self.find_predecessor(hashed_id)
         node_client: NodeInterface.Client = utils.get_client(predecessor.ip_address, predecessor.port_no, NodeInterface.Client)
         return node_client.get_successor()
@@ -188,11 +211,14 @@ class NodeHandler:
 
     def find_predecessor(self, hashed_id: int) -> ttypes.NodeInfo:
         closest_predecessor = self.get_closest_predecessor(hashed_id)
+        if closest_predecessor.node_id == self.node_id:
+            return closest_predecessor
+
         predecessor_client: NodeInterface.Client = utils.get_client(
             ip_address=closest_predecessor.ip_address, port=closest_predecessor.port_no,
             client_class=NodeInterface.Client
         )
-        while not self.check_if_in_between(hashed_id, closest_predecessor.ip_address, predecessor_client.get_successor().node_id,
+        while not self.check_if_in_between(hashed_id, closest_predecessor.node_id, predecessor_client.get_successor().node_id,
                                            end_inclusive=True):
             closest_predecessor = predecessor_client.get_closest_predecessor(hashed_id)
             predecessor_client: NodeInterface.Client = utils.get_client(
@@ -204,8 +230,8 @@ class NodeHandler:
 
     def get_finger_node_ids(self, node_id):
         finger_node_ids = []
-        # max_bits = math.ceil(math.log2(self.max_dht_nodes))
-        max_bits = len(self.finger_table)
+        max_bits = math.ceil(math.log2(self.max_dht_nodes))
+        # max_bits = len(self.finger_table)
         for i in range(max_bits):
             finger_node_ids.append((node_id + 2 ** i) % self.max_dht_nodes)
         return finger_node_ids
@@ -229,13 +255,17 @@ class NodeHandler:
         if id == (self.node_id + 1) % self.max_dht_nodes:
             self.successor = node_info
 
-        if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[id].node_id):
-            self.finger_table[id] = node_info
-            predecessor_client: NodeInterface.Client = utils.get_client(
-                ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
-                client_class=NodeInterface.Client
-            )
-            predecessor_client.update_finger_table(id, node_info)
+        if node_info.node_id == self.node_id:
+            return
+        else:
+            if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[id].node_id, end_inclusive=True):
+                self.finger_table[id] = node_info
+                if self.get_predecessor().node_id != self.node_id:
+                    predecessor_client: NodeInterface.Client = utils.get_client(
+                        ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
+                        client_class=NodeInterface.Client
+                    )
+                    predecessor_client.update_finger_table(id, node_info)
 
     def put(self, word: str, meaning: str) -> bool:
         """
@@ -245,15 +275,18 @@ class NodeHandler:
         :param meaning: Meaning of the word to be stored in DHT
         :return: a True boolean. This returns a boolean only to signal to the caller that insertion is successful
         """
+        print(f"Putting the meaning of the word {word}")
         # Always keep cache of every word that goes through
         self.cached_meaning[word] = meaning
         hashed_id = self.hash_word(word)
 
         # If this is the successor node to the hashed id, store it in this node
         if self.check_if_in_between(hashed_id, self.get_predecessor().node_id, self.node_id, end_inclusive=True):
+            print(f"Putting the meaning of the word : {word} in this node")
             self.meaning[word] = meaning
             return True
         else:
+            print(f"The word {word} is being searched for in the DHT")
             # Else find the successor, and store the data there
             successor: ttypes.NodeInfo = self.find_successor(hashed_id)
             successor_client: NodeInterface.Client = utils.get_client(ip_address=successor.ip_address, port=successor.port_no,
@@ -270,6 +303,8 @@ class NodeHandler:
         :return: a result type object with meaning of the word and the IP of node called by client and the node containing the word
         :raises: A custom exception. This can happen when the client asks for meaning of word that is not in DHT
         """
+        print(f"Getting meaning for word {word}")
+
         # If we use cache, and the word is cached, we return the word
         if use_cache and word in self.cached_meaning:
             print(f"Getting cached meaning for word {word}")
@@ -314,7 +349,7 @@ if __name__ == '__main__':
 
     transport_factory = TTransport.TBufferedTransportFactory()
     protocol_factory = TBinaryProtocol.TBinaryProtocolFactory()
-    server = TServer.TThreadPoolServer(processor, transport, transport_factory, protocol_factory)
+    server = TServer.TThreadedServer(processor, transport, transport_factory, protocol_factory)
 
     print("Initiating registration with supernode")
     handler.initiate_registration_with_supernode()
