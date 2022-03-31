@@ -14,9 +14,14 @@ try:
     with open('config.json') as _config:
         CONFIG = json.load(_config)
 except FileNotFoundError as e:
-    raise CustomException(message = "Config file not found")
+    raise CustomException(message="Config file not found")
 except Exception as e:
     raise CustomException(f"Cannot load the config file:\n{e}")
+
+
+def modify_config(new_config):
+    with open('config.json', 'w') as _new_config_file:
+        json.dump(new_config, _new_config_file)
 
 
 def check_if_client_is_eligible(client_class) -> bool:
@@ -32,22 +37,22 @@ def check_if_client_is_eligible(client_class) -> bool:
 def get_client(ip_address, port, client_class):
     if check_if_client_is_eligible(client_class):
         # Make socket
-        transport = TSocket.TSocket(ip_address, port = port)
+        transport = TSocket.TSocket(ip_address, port=port)
         # Wrap in a protocol
         protocol = TBinaryProtocol.TBinaryProtocol(transport)
-        
+
         transport = TTransport.TBufferedTransport(transport)
-        
+
         # If the server has implemented multiple services, get the required service from config.json
         if client_class.__module__ in CONFIG["multiplexingKeys"]:
             protocol = TMultiplexedProtocol.TMultiplexedProtocol(
-                protocol, serviceName = CONFIG["multiplexingKeys"][client_class.__module__]
+                protocol, serviceName=CONFIG["multiplexingKeys"][client_class.__module__]
             )
-        
+
         # Create a client to use the protocol encoder
         client = client_class(protocol)
-        
+
         # Connect!
         transport.open()
-        
+
         return client

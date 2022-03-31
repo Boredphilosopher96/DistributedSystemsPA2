@@ -1,11 +1,14 @@
 {
-    "maxNodes": 16,
-    "superNodeIp": "127.0.0.1",
-    "superNodePort": 5001,
-    "multiplexingKeys": {
-        "interface.ClientSuperNodeInterface": "clientSuperNodeProcessor",
-        "interface.ClientNodeInterface": "clientNodeProcessor",
-        "interface.NodeSuperNodeInterface": "nodeSuperNodeProcessor",
-        "interface.NodeInterface": "nodeProcessor"
-    }
+  "maxNodes": 16,
+  "superNodeIp": "127.0.0.1",
+  "superNodePort": 5001,
+  "multiplexingKeys": {
+    "interface.ClientSuperNodeInterface": "clientSuperNodeProcessor",
+    "interface.ClientNodeInterface": "clientNodeProcessor",
+    "interface.NodeSuperNodeInterface": "nodeSuperNodeProcessor",
+    "interface.NodeInterface": "nodeProcessor"
+  },
+  "mode": "dev",
+  "nodePort": 5007,
+  "nodedPort": 5002
 }

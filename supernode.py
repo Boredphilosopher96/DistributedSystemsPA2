@@ -113,6 +113,11 @@ class SuperNodeHandler:
 
 
 if __name__ == '__main__':
+    # Making sure the socket number resets everytime we rerun the program
+    if utils.CONFIG["mode"] == "dev":
+        utils.CONFIG["nodePort"] = utils.CONFIG["superNodePort"] + 1
+        utils.modify_config(utils.CONFIG)
+
     handler = SuperNodeHandler(utils.CONFIG['maxNodes'])
     # Because it implements multiple interfaces, register all the processors with name given in config file
     processor = TMultiplexedProcessor()

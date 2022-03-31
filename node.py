@@ -10,12 +10,10 @@ from thrift.transport import TSocket, TTransport
 import utils
 from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeInterface
 
-SERVER_ID = 2
-
 
 class NodeHandler:
-    def __init__(self, max_dht_nodes, local_hostname=socket.gethostbyname(socket.gethostname()),
-                 port_number=utils.CONFIG['superNodePort'] + SERVER_ID):
+    def __init__(self, max_dht_nodes, local_hostname=socket.getfqdn(),
+                 port_number=utils.CONFIG['nodePort']):
         self.finger_table = {}
         self.max_dht_nodes = max_dht_nodes
         self.meaning = {}
@@ -23,8 +21,7 @@ class NodeHandler:
         self.successor = None
         self.predecessor = None
         self.node_id = None
-        # self.local_host = local_hostname
-        self.local_host = "10.0.30.0"
+        self.local_host = local_hostname
         self.port_number = port_number
 
     def ping(self):
@@ -39,7 +36,6 @@ class NodeHandler:
             utils.CONFIG['superNodeIp'], utils.CONFIG['superNodePort'], client_class=NodeSuperNodeInterface.Client
         )
 
-        # random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join(self.local_host, self.port_number)
         random_node: ttypes.NodeInfo = node_supernode_client.get_node_for_join(self.local_host, self.port_number)
 
         # If this is the first node joining the DHT, no need to update any finger tables
@@ -350,7 +346,8 @@ class NodeHandler:
 
 
 if __name__ == '__main__':
-    handler = NodeHandler(utils.CONFIG['maxNodes'])
+    port = utils.CONFIG['nodePort']
+    handler = NodeHandler(utils.CONFIG['maxNodes'], port_number=port)
     # Using multiplexed processor because this same server has 2 thrift interfaces
     processor = TMultiplexedProcessor()
     # Registering the 2 different processors which this server serves
@@ -362,11 +359,16 @@ if __name__ == '__main__':
         utils.CONFIG["multiplexingKeys"][ClientNodeInterface.Client.__module__], ClientNodeInterface.Processor(handler)
     )
 
-    transport = TSocket.TServerSocket(port=utils.CONFIG['superNodePort'] + SERVER_ID)
+    transport = TSocket.TServerSocket(port=port)
 
     transport_factory = TTransport.TBufferedTransportFactory()
     protocol_factory = TBinaryProtocol.TBinaryProtocolFactory()
     server = TServer.TThreadedServer(processor, transport, transport_factory, protocol_factory)
+
+    # If mode is dev, we just increment the socket number for the next node
+    if utils.CONFIG["mode"] == "dev":
+        utils.CONFIG["nodePort"] = port + 1
+        utils.modify_config(utils.CONFIG)
 
     print("Initiating registration with supernode")
     handler.initiate_registration_with_supernode()
