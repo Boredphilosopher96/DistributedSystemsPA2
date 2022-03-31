@@ -21,14 +21,11 @@ class SuperNodeHandler:
         self.__node_add_started = None
 
     def get_node_for_client(self) -> ttypes.NodeInfo:
+        # Get a random node for the client from the DHT
         print("Getting random node for client")
         random_node_id = self._get_random_node()
         print(f"Got node with id: {random_node_id} : details : {self.node_details[random_node_id]}")
         return self.node_details[random_node_id]
-
-    def ping(self) -> str:
-        print("Pinging")
-        return "ping ping ping"
 
     def __reset_supernode(self):
         self.__node_add_started = None
@@ -36,6 +33,8 @@ class SuperNodeHandler:
         self.__is_new_node_being_added = False
 
     def _check_if_timed_out(self):
+        # If a node started joining DHT more than 30 seconds ago and still hasn't registered, we remove it from "currently executing"
+        # We assume such a node has failed
         if self.__node_add_started is None:
             self.__reset_supernode()
             raise ttypes.CustomException("Node add time not recorded. So supernode has been reset")
