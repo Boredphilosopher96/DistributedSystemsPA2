@@ -1,5 +1,5 @@
 {
-    "maxNodes": 16,
+    "maxNodes": 8,
     "superNodeIp": "127.0.0.1",
     "superNodePort": 5001,
     "multiplexingKeys": {

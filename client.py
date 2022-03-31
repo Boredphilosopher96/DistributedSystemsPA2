@@ -18,7 +18,7 @@ if __name__ == '__main__':
     node_client: ClientNodeInterface.Client = get_client(
         node_info.ip_address, node_info.port_no, client_class=ClientNodeInterface.Client
     )
-    # words = {}
+    words = {}
     # with open('dictionary_sample.txt') as file:
     #     for line in file:
     #         line = line.strip()
@@ -46,7 +46,8 @@ if __name__ == '__main__':
     # node_client.put('Ram', 'Catty')
     # node_client.put('Raj', 'Power')
     try:
-        print(node_client.get('ARGL', use_cache=False))
-        print(node_client.get('BARKEN', use_cache=False))
+        # print(node_client.get('ARGL', use_cache=False))
+        print(f"meaning of the word random - {node_client.get('random', use_cache=False)}")
+        print(f"meaning of the word amphigonous - {node_client.get('AMPHIGONOUS'.lower(), use_cache=False)}")
     except ttypes.CustomException as e:
         print(f"{e.message}")

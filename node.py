@@ -10,7 +10,7 @@ from thrift.transport import TSocket, TTransport
 import utils
 from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeInterface
 
-SERVER_ID = 8
+SERVER_ID = 5
 
 
 class NodeHandler:
@@ -270,21 +270,29 @@ class NodeHandler:
         self.successor = node_info
 
     def update_finger_table(self, id: int, node_info: ttypes.NodeInfo):
-        if node_info.node_id == self.node_id:
-            return
-        finger_nodes = self.get_finger_node_ids(self.node_id)
-        # Try to match this with paper and other people's implementation
-        if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[finger_nodes[id]].node_id, start_inclusive=True):
-            self.finger_table[finger_nodes[id]] = node_info
-            print(f"The finger table of the node was updated to \n {self.finger_table}")
-            # if self.get_predecessor().node_id == node_info.node_id:
-            #     return
-            if self.get_predecessor().node_id != self.node_id and self.get_predecessor().node_id != node_info.node_id:
-                predecessor_client: NodeInterface.Client = utils.get_client(
-                    ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
-                    client_class=NodeInterface.Client
-                )
-                predecessor_client.update_finger_table(id, node_info)
+        if node_info.node_id == self.node_id and self.get_predecessor().node_id != node_info.node_id:
+            predecessor_client: NodeInterface.Client = utils.get_client(
+                ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
+                client_class=NodeInterface.Client
+            )
+            predecessor_client.update_finger_table(id, node_info)
+        else:
+            finger_nodes = self.get_finger_node_ids(self.node_id)
+            # Try to match this with paper and other people's implementation
+            if self.check_if_in_between(node_info.node_id, self.node_id, self.finger_table[finger_nodes[id]].node_id, start_inclusive=True):
+                if self.check_if_in_between(node_info.node_id, finger_nodes[id], self.finger_table[finger_nodes[id]].node_id,
+                                            start_inclusive=True): #and (finger_nodes[id] != self.finger_table[finger_nodes[id]].node_id):
+                    self.finger_table[finger_nodes[id]] = node_info
+                    print(
+                        f"The value for {finger_nodes[id]} changed to {node_info.node_id} finger table of the node was updated to \n {self.finger_table}")
+                    # if self.get_predecessor().node_id == node_info.node_id:
+                    #     return
+                    if self.get_predecessor().node_id != self.node_id and self.get_predecessor().node_id != node_info.node_id:
+                        predecessor_client: NodeInterface.Client = utils.get_client(
+                            ip_address=self.get_predecessor().ip_address, port=self.get_predecessor().port_no,
+                            client_class=NodeInterface.Client
+                        )
+                        predecessor_client.update_finger_table(id, node_info)
 
     def put(self, word: str, meaning: str) -> bool:
         """
