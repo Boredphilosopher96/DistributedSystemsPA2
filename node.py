@@ -10,7 +10,7 @@ from thrift.transport import TSocket, TTransport
 import utils
 from interface import NodeInterface, ClientNodeInterface, ttypes, NodeSuperNodeInterface
 
-SERVER_ID = 6
+SERVER_ID = 2
 
 
 class NodeHandler:
@@ -99,30 +99,28 @@ class NodeHandler:
             finger_ids = self.get_finger_node_ids(self.node_id)
             self.finger_table[finger_ids[0]] = self.get_successor()
 
-            for index, node_id in enumerate(finger_ids[1:]):
-                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id, start_inclusive=True):
-                    self.finger_table[node_id] = self.finger_table[finger_ids[index]]
-                else:
-                    if random_node.node_id == self.get_predecessor().node_id:
-                        self.finger_table[node_id] = current_node
-                    else:
-                        self.finger_table[node_id] = random_node_client.find_successor(node_id)
+            self.init_fingertable(current_node, finger_ids, random_node, random_node_client)
 
             # Ask other nodes to update finger tables as well
             self._ask_others_to_update_finger_tables()
 
-            for index, node_id in enumerate(finger_ids[1:]):
-                if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id, start_inclusive=True):
-                    self.finger_table[node_id] = self.finger_table[finger_ids[index]]
-                else:
-                    if random_node.node_id == self.get_predecessor().node_id:
-                        self.finger_table[node_id] = current_node
-                    else:
-                        self.finger_table[node_id] = random_node_client.find_successor(node_id)
+            self.init_fingertable(current_node, finger_ids, random_node, random_node_client)
 
             node_supernode_client.post_join(self.node_id)
 
             print(f"Node initialized with the following details {current_node}")
+            print(f"Node successor {self.successor}\n,Node predecessor : {self.predecessor}")
+            print(f"Finger table {self.finger_table}")
+
+    def init_fingertable(self, current_node, finger_ids, random_node, random_node_client):
+        for index, node_id in enumerate(finger_ids[1:]):
+            if self.check_if_in_between(node_id, self.node_id, self.finger_table[finger_ids[index]].node_id, start_inclusive=True):
+                self.finger_table[node_id] = self.finger_table[finger_ids[index]]
+            else:
+                if random_node.node_id == self.get_predecessor().node_id:
+                    self.finger_table[node_id] = current_node
+                else:
+                    self.finger_table[node_id] = random_node_client.find_successor(node_id)
 
     def _ask_others_to_update_finger_tables(self):
         for i in range(math.ceil(math.log2(self.max_dht_nodes))):
@@ -293,6 +291,7 @@ class NodeHandler:
         :return: a True boolean. This returns a boolean only to signal to the caller that insertion is successful
         """
         print(f"Putting the meaning of the word {word}")
+        word = word.lower()
         # Always keep cache of every word that goes through
         self.cached_meaning[word] = meaning
         hashed_id = self.hash_word(word)
@@ -321,6 +320,7 @@ class NodeHandler:
         :raises: A custom exception. This can happen when the client asks for meaning of word that is not in DHT
         """
         print(f"Getting meaning for word {word}")
+        word = word.lower()
 
         # If we use cache, and the word is cached, we return the word
         if use_cache and word in self.cached_meaning:
